@@ -3,3 +3,131 @@ The purpose of this project is to assist me in my daily duties as a University o
 Common pain points I wish to reduce:
 - Looking for an obscure phone number (commonly have to visit the website and scroll to find it)
 - Using the UH Directory at https://www.uh.edu/directory/
+
+
+What is the best system for doing this? I don't want to manually add phone numbers as it is a dynamic job that involves random requests for obscure contacts.
+
+Here is how I want it to look as I already have an electron app setup with the search query and Gemini API (dont give me any code, just explain)
+
+1. Open Electron app
+2. Click on search bar
+3. Create query for the phone number
+4. AI will check cache for a phone number that fits the query, if it doesnt find it - continue
+Ex: Query: "Housing" -> AI breaks it down as "Organization: University of Houston, Department: Housing, Phone number: xxx-xxx-xxxx" - returns phone number. A validation prompt (Good or bad response?) will pop up, if it was a good response, add to the cache.
+5. If it is not in the cache, have custom search API return the links of the top 2 websites, give website data to the AI to interpret. It should be able to handle multiple phone numbers and select the correct one. For example, if there is a "main line" phone number, a fax number, and a irrelevant number it should just the main one based on context
+6. AI returns the result, workflow #4 is executed (to determine if it goes to the cache)
+
+Here’s a high‑level architecture and workflow you can implement on top of your existing Electron/Gemini setup—no code, just concepts:
+
+1. Front‑End (Electron Renderer)
+Search Bar UI
+A simple input field where you type “Housing,” “Registrar,” etc.
+
+Results & Validation Dialog
+Once a phone number is returned, pop up a quick “Good/Bad” feedback button right below it.
+
+2. IPC Bridge to Main Process
+Whenever you hit Enter (or click Search), send that query string via Electron’s IPC to a single back‑end handler in the Main process.
+
+3. Cache Layer
+Storage Choice
+
+Lightweight: a local SQLite file or even a JSON/LevelDB store.
+
+Semantic lookup: optionally pair it with a tiny vector index (e.g. use embeddings + a small vector DB) so synonyms (“housing,” “dorms,” “residence life”) still hit cached entries.
+
+Key Schema
+Store each entry as { org: "University of Houston", dept: "Housing", phone: "713‑###‑####", aliases: [...], lastValid: timestamp }.
+
+Lookup Logic
+
+Normalize the query (lowercase, strip stop‑words).
+
+First attempt exact or fuzzy lookup in your cache.
+
+If confidence ≥ threshold, return that.
+
+4. “Miss” → External Search + Scraping
+If the cache misses (or confidence is low):
+
+Custom Search API Call
+Ask Gemini’s search‑wrapper to hit top 2 UH‑related pages (e.g. UH Directory and departmental site).
+
+Page Fetch & Phone Extraction
+Use a tiny HTML parser + phone‑regex to pull out all numbers on those two pages.
+
+5. Disambiguation via LLM
+Structured Prompt
+
+sql
+Copy
+Edit
+“I queried ‘Housing’ for UH. Here are extracted numbers from these URLs:
+ - Fifty‑five possible numbers: [(123) 456‑7890, (713) 743‑5470 (main line), …]
+Please identify the single main department phone number and return only the digits.”
+LLM Returns
+e.g. “7137435470”
+
+6. Show & Validate
+Display that candidate to the user with a “👍 Good / 👎 Bad” prompt.
+
+If user clicks Good, go to step 7.
+
+If Bad, optionally let them type the correct one or flag as “unable to find”—so you don’t cache a wrong entry.
+
+7. Cache Ingestion
+When validated Good:
+
+Insert (or update) your cache store with:
+
+org: “University of Houston”
+
+dept: whatever the LLM mapped (Housing)
+
+phone: the validated number
+
+aliases: record the original query text
+
+lastValid: today’s timestamp
+
+Next time someone searches any of those aliases, you’ll get an instant hit.
+
+8. Optional Enhancements
+Background Refresh
+Periodically re‑scrape and re‑validate high‑use entries so numbers don’t go stale.
+
+Usage Metrics
+Track how often each entry is used; surface the “Top 10” most‑queried departments for a one‑click list.
+
+Synonym Expansion
+Have the LLM suggest additional query aliases (“res life,” “on‑campus housing”) and seed them in your cache automatically after a good validation.
+
+Why This Works
+Dynamic & Scalable
+You never hard‑code numbers—they enter your system only after real use and confirmation.
+
+Fast, Semantic Cache
+Users get immediate results for repeat queries, including fuzzy matches.
+
+AI‑Driven Discovery
+When the cache fails, the LLM plus lightweight scraping handles the heavy lifting.
+
+Quality Control
+A one‑click feedback loop keeps your cache accurate over time.
+
+Maintainable
+All storage is local; nothing manual to update unless a department splits or renames itself—at which point the background refresh (or a single new validation) handles it.
+
+With this architecture, your Electron app remains a simple shell around:
+
+UI → IPC → Cache Lookup → (miss) Search & LLM → Validation → Cache Insert → UI
+
+That minimal orchestration gives you a truly dynamic, self‑growing phone‑number assistant without ever hand‑typing a directory.
+
+
+
+
+
+
+
+

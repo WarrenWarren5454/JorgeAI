@@ -45,7 +45,15 @@ function readPhoneDatabase() {
         return JSON.parse(data);
     } catch (error) {
         console.error('Error reading phone database:', error);
-        return { departments: [], metadata: { last_updated: new Date().toISOString() } };
+        // If there's an error, create a new database
+        const initialDatabase = {
+            departments: [],
+            metadata: {
+                last_updated: new Date().toISOString()
+            }
+        };
+        fs.writeFileSync(phoneDatabaseFile, JSON.stringify(initialDatabase, null, 2));
+        return initialDatabase;
     }
 }
 
@@ -60,7 +68,7 @@ function writePhoneDatabase(data) {
 }
 
 // Function to add a new phone number to the database
-function addPhoneNumber(department, phoneNumber) {
+function addPhoneNumber(department, phoneNumber, aliases = []) {
     const database = readPhoneDatabase();
     
     // Check if department already exists
@@ -71,12 +79,26 @@ function addPhoneNumber(department, phoneNumber) {
     if (existingIndex >= 0) {
         // Update existing department
         database.departments[existingIndex].phoneNumber = phoneNumber;
+        database.departments[existingIndex].lastValid = new Date().toISOString();
+        
+        // Add new aliases if they don't exist
+        if (aliases && aliases.length > 0) {
+            const existingAliases = database.departments[existingIndex].aliases || [];
+            aliases.forEach(alias => {
+                if (!existingAliases.includes(alias.toLowerCase())) {
+                    existingAliases.push(alias.toLowerCase());
+                }
+            });
+            database.departments[existingIndex].aliases = existingAliases;
+        }
     } else {
         // Add new department
         database.departments.push({
             name: department,
             phoneNumber: phoneNumber,
-            added: new Date().toISOString()
+            aliases: aliases || [],
+            added: new Date().toISOString(),
+            lastValid: new Date().toISOString()
         });
     }
     
@@ -143,7 +165,16 @@ function readCache() {
         return JSON.parse(data);
     } catch (error) {
         console.error('Error reading cache:', error);
-        return { cache: {}, metadata: { last_updated: new Date().toISOString(), cache_duration_days: 30 } };
+        // If there's an error, create a new cache
+        const initialCache = {
+            cache: {},
+            metadata: {
+                last_updated: new Date().toISOString(),
+                cache_duration_days: 30
+            }
+        };
+        fs.writeFileSync(cacheFile, JSON.stringify(initialCache, null, 2));
+        return initialCache;
     }
 }
 
@@ -165,12 +196,141 @@ function isCacheValid(timestamp) {
     return (now - cacheTime) < cacheDuration;
 }
 
+// Function to search in cache
+function searchCache(query) {
+    const cache = readCache();
+    const normalizedQuery = query.toLowerCase().trim();
+    
+    // Check if query exists in cache
+    if (cache.cache[normalizedQuery] && isCacheValid(cache.cache[normalizedQuery].lastValid)) {
+        return {
+            success: true,
+            data: {
+                department: cache.cache[normalizedQuery].department,
+                phoneNumber: cache.cache[normalizedQuery].phoneNumber
+            },
+            source: 'cache'
+        };
+    }
+    
+    // Check aliases in cache
+    for (const [key, value] of Object.entries(cache.cache)) {
+        if (value.aliases && value.aliases.includes(normalizedQuery) && isCacheValid(value.lastValid)) {
+            return {
+                success: true,
+                data: {
+                    department: value.department,
+                    phoneNumber: value.phoneNumber
+                },
+                source: 'cache'
+            };
+        }
+    }
+    
+    // No match found in cache
+    return {
+        success: false,
+        message: 'No match found in cache'
+    };
+}
+
+// Function to add to cache
+function addToCache(query, department, phoneNumber) {
+    const cache = readCache();
+    const normalizedQuery = query.toLowerCase().trim();
+    
+    // Add to cache
+    cache.cache[normalizedQuery] = {
+        department: department,
+        phoneNumber: phoneNumber,
+        lastValid: new Date().toISOString(),
+        aliases: [normalizedQuery]
+    };
+    
+    // Update metadata
+    cache.metadata.last_updated = new Date().toISOString();
+    
+    // Write to file
+    return writeCache(cache);
+}
+
+// Function to use AI to interpret the query
+async function interpretQuery(query) {
+    try {
+        const response = await axios.post(
+            `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${process.env.GEMINI_API_KEY}`,
+            {
+                contents: [{
+                    parts: [{
+                        text: `Convert "${query}" into the exact University of Houston department name. Respond with only the name (e.g. UH Bookstore).`
+                    }]
+                }]
+            }
+        );
+
+        // Get the response and trim any whitespace
+        const departmentName = response.data.candidates[0].content.parts[0].text.trim();
+        console.log('AI interpretation result:', departmentName);
+        
+        return departmentName;
+    } catch (error) {
+        console.error('AI interpretation error:', error);
+        return query; // Fall back to original query
+    }
+}
+
+// Google search function
+async function searchGoogle(query) {
+    try {
+        // Verify environment variables
+        if (!process.env.GOOGLE_API_KEY) {
+            console.error('GOOGLE_API_KEY is not defined in environment variables');
+            return [];
+        }
+        
+        if (!process.env.GOOGLE_SEARCH_ENGINE_ID) {
+            console.error('GOOGLE_SEARCH_ENGINE_ID is not defined in environment variables');
+            return [];
+        }
+        
+        // Construct a proper search query for the University of Houston
+        const searchQuery = `${query} University of Houston phone number contact`;
+        console.log('Searching Google with query:', searchQuery);
+        
+        // Use axios instead of fetch
+        const response = await axios.get('https://www.googleapis.com/customsearch/v1', {
+            params: {
+                key: process.env.GOOGLE_API_KEY,
+                cx: process.env.GOOGLE_SEARCH_ENGINE_ID,
+                q: searchQuery,
+                num: 2
+            }
+        });
+        
+        if (!response.data || !response.data.items || response.data.items.length === 0) {
+            console.log('No search results found');
+            return [];
+        }
+
+        // Extract and return the URLs
+        const urls = response.data.items.map(item => item.link);
+        console.log('Found URLs:', urls);
+        return urls;
+    } catch (error) {
+        console.error('Error in Google search:', error.message);
+        if (error.response) {
+            console.error('API response:', error.response.data);
+        }
+        return [];
+    }
+}
+
 // Web scraping function
 async function scrapeWebsite(url) {
     try {
         console.log(`Scraping: ${url}`);
         const response = await axios.get(url, {
-            timeout: 10000, // 10 second timeout
+            timeout: 10000,
             headers: {
                 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36'
             }
@@ -178,24 +338,39 @@ async function scrapeWebsite(url) {
         
         const $ = cheerio.load(response.data);
         
-        // Extract all text content
-        const text = $('body').text();
-        
-        // Extract phone numbers using multiple regex patterns
-        const phonePatterns = [
-            /(?:\+?1[-.]?)?\(?([0-9]{3})\)?[-.]?([0-9]{3})[-.]?([0-9]{4})/g, // Standard format
-            /(?:\+?1[-.]?)?\(?([0-9]{3})\)?[-.]?([0-9]{3})[-.]?([0-9]{4})/g, // With country code
-            /\(?([0-9]{3})\)?[-.]?([0-9]{3})[-.]?([0-9]{4})/g, // Without country code
-            /([0-9]{3})[-.]?([0-9]{3})[-.]?([0-9]{4})/g // Just numbers
-        ];
-        
+        // First try to find phone numbers in common contact elements
+        const contactElements = $('a[href^="tel:"], .contact, .phone, .telephone, [class*="contact"], [class*="phone"], [id*="contact"], [id*="phone"]');
         let phones = [];
-        for (const pattern of phonePatterns) {
-            const matches = text.match(pattern) || [];
-            phones = [...phones, ...matches];
+        
+        contactElements.each((i, elem) => {
+            const text = $(elem).text().trim();
+            const href = $(elem).attr('href');
+            
+            // Extract from tel: links
+            if (href && href.startsWith('tel:')) {
+                const phone = href.replace('tel:', '').trim();
+                if (isValidPhoneNumber(phone)) {
+                    phones.push(phone);
+                }
+            }
+            
+            // Extract from text content
+            const phoneMatches = text.match(/(?:\+?1[-.]?)?\(?([0-9]{3})\)?[-.]?([0-9]{3})[-.]?([0-9]{4})/g);
+            if (phoneMatches) {
+                phones.push(...phoneMatches);
+            }
+        });
+        
+        // If no phones found in contact elements, search the entire page
+        if (phones.length === 0) {
+            const text = $('body').text();
+            const phoneMatches = text.match(/(?:\+1[-.]?)?\(?([0-9]{3})\)?[-.]?([0-9]{3})[-.]?([0-9]{4})/g);
+            if (phoneMatches) {
+                phones.push(...phoneMatches);
+            }
         }
         
-        // Remove duplicates and normalize format
+        // Remove duplicates and normalize
         phones = [...new Set(phones)].map(phone => {
             // Remove all non-numeric characters
             const digits = phone.replace(/\D/g, '');
@@ -207,139 +382,196 @@ async function scrapeWebsite(url) {
         });
         
         console.log(`Found ${phones.length} phone numbers at ${url}`);
-        
         return {
             url,
-            content: text,
             phones: phones
         };
     } catch (error) {
-        if (error.response && error.response.status === 404) {
-            console.error(`Page not found: ${url}`);
-        } else {
-            console.error(`Error scraping ${url}:`, error.message);
-        }
+        console.error(`Error scraping ${url}:`, error.message);
         return null;
     }
 }
 
-// Google search function
-async function searchGoogle(query) {
-    try {
-        const apiKey = process.env.GOOGLE_SEARCH_API_KEY;
-        const searchEngineId = process.env.SEARCH_ENGINE_ID;
-        
-        // Add site:uh.edu to limit results to UH websites
-        const searchQuery = `${query} site:uh.edu`;
-        const url = `https://www.googleapis.com/customsearch/v1?key=${apiKey}&cx=${searchEngineId}&q=${encodeURIComponent(searchQuery)}`;
-        
-        console.log(`Searching Google for: ${searchQuery}`);
-        const response = await axios.get(url);
-        
-        if (response.data && response.data.items) {
-            // Extract the first 5 URLs from the search results
-            const urls = response.data.items.slice(0, 5).map(item => item.link);
-            console.log(`Found ${urls.length} URLs from Google search`);
-            return urls;
-        }
-        
-        console.log('No search results found');
-        return [];
-    } catch (error) {
-        console.error('Google search error:', error.response?.data || error.message);
-        return [];
-    }
+function isValidPhoneNumber(phone) {
+    // Remove all non-digit characters
+    const digits = phone.replace(/\D/g, '');
+    // Check if it's a valid 10-digit phone number
+    return digits.length === 10;
 }
 
-// Add a function to validate phone numbers
-function validatePhoneNumber(phone, query) {
-    // Known correct phone numbers for common departments
-    const knownPhones = {
-        'hr': '(713) 743-3988',
-        'human resources': '(713) 743-3988',
-        'housing': '(713) 743-6000',
-        'student housing': '(713) 743-6000',
-        'residence': '(713) 743-6000',
-        'it': '(713) 743-1411',
-        'help desk': '(713) 743-1411',
-        'uit': '(713) 743-1411',
-        'information technology': '(713) 743-1411',
-        'library': '(713) 743-9800',
-        'libraries': '(713) 743-9800',
-        'parking': '(713) 743-1099',
-        'transportation': '(713) 743-1099',
-        'admission': '(713) 743-1010',
-        'admissions': '(713) 743-1010',
-        'apply': '(713) 743-1010',
-        'financial': '(713) 743-1010',
-        'aid': '(713) 743-1010',
-        'scholarship': '(713) 743-1010',
-        'registrar': '(713) 743-1010',
-        'registration': '(713) 743-1010',
-        'health': '(713) 743-5151',
-        'medical': '(713) 743-5151',
-        'police': '(713) 743-3333',
-        'security': '(713) 743-3333',
-        'uhpd': '(713) 743-3333'
-    };
-    
-    // Check if we have a known phone number for this query
-    const normalizedQuery = query.toLowerCase().trim();
-    if (knownPhones[normalizedQuery]) {
-        console.log(`Using known phone number for ${normalizedQuery}: ${knownPhones[normalizedQuery]}`);
-        return knownPhones[normalizedQuery];
-    }
-    
-    // Check for partial matches in the query
-    for (const [key, value] of Object.entries(knownPhones)) {
-        if (normalizedQuery.includes(key)) {
-            console.log(`Using known phone number for partial match ${key}: ${value}`);
-            return value;
+// Function to disambiguate phone numbers using AI
+async function disambiguatePhoneNumbers(query, phoneNumbers, urls) {
+    try {
+        // First, validate all phone numbers
+        const validPhoneNumbers = phoneNumbers.filter(phone => {
+            // Remove any non-digit characters
+            const digits = phone.replace(/\D/g, '');
+            // Check if it's a valid 10-digit phone number
+            return digits.length === 10;
+        });
+
+        if (validPhoneNumbers.length === 0) {
+            console.log('No valid phone numbers found');
+            return null;
         }
+
+        // If we only have one valid phone number, return it
+        if (validPhoneNumbers.length === 1) {
+            console.log('Only one valid phone number found');
+            return validPhoneNumbers[0];
+        }
+
+        // Simple disambiguation logic
+        // 1. Check if any number is from the first URL (usually the most relevant)
+        const firstUrlPhones = phoneNumbers.filter((phone, index) => {
+            // Find which URL this phone came from
+            for (let i = 0; i < urls.length; i++) {
+                if (urls[i] === urls[0]) {
+                    // This phone is from the first URL
+                    return true;
+                }
+            }
+            return false;
+        });
+
+        if (firstUrlPhones.length === 1) {
+            console.log('Selected phone number from first URL');
+            return firstUrlPhones[0];
+        }
+
+        // 2. Check for common UH area codes (713, 832)
+        const uhAreaCodePhones = validPhoneNumbers.filter(phone => {
+            const digits = phone.replace(/\D/g, '');
+            return digits.startsWith('713') || digits.startsWith('832');
+        });
+
+        if (uhAreaCodePhones.length === 1) {
+            console.log('Selected phone number with UH area code');
+            return uhAreaCodePhones[0];
+        }
+
+        // 3. If we still have multiple numbers, just return the first one
+        console.log('Multiple valid phone numbers found, returning the first one');
+        return validPhoneNumbers[0];
+    } catch (error) {
+        console.error('Error in disambiguation:', error);
+        return null;
     }
-    
-    // If no known phone number, return the provided phone
-    return phone;
 }
 
 // Main search handler
 ipcMain.handle('search-phone', async (event, query) => {
     try {
-        // Use AI to interpret the query
-        const interpretationResponse = await axios.post(
-            `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${process.env.GEMINI_API_KEY}`,
-            {
-                contents: [{
-                    parts: [{
-                        text: `Interpret this search query for University of Houston departments. Convert it to a standardized department name. Example: "housing" -> "Student Housing". Query: "${query}"`
-                    }]
-                }]
-            }
-        );
-
-        const interpretedQuery = interpretationResponse.data.candidates[0].content.parts[0].text;
-        console.log('Interpreted query:', interpretedQuery);
-
-        // Search the database with the interpreted query
-        const result = searchPhoneDatabase(interpretedQuery);
+        console.log('Searching for:', query);
         
-        if (result.success) {
-            return result;
-        } else {
-            // If no match found with interpreted query, try with original query
-            return searchPhoneDatabase(query);
+        // First, interpret the query using AI
+        const interpretedQuery = await interpretQuery(query);
+        console.log('Interpreted query:', interpretedQuery);
+        
+        // Check cache first
+        const cachedResult = await searchCache(interpretedQuery);
+        if (cachedResult && cachedResult.success) {
+            console.log('Found in cache:', cachedResult);
+            return {
+                success: true,
+                phone: cachedResult.data.phoneNumber,
+                source: 'cache',
+                timestamp: cachedResult.data.lastValid
+            };
         }
+        
+        // If not in cache, search Google
+        const urls = await searchGoogle(interpretedQuery);
+        if (!urls || urls.length === 0) {
+            console.log('No relevant pages found');
+            return {
+                success: false,
+                error: 'No relevant pages found for your search. Please try a different search term.'
+            };
+        }
+        
+        console.log('Visiting URLs:', urls);
+        
+        // Scrape phone numbers from the pages
+        const allPhones = [];
+        for (const url of urls) {
+            console.log(`Scraping URL: ${url}`);
+            const result = await scrapeWebsite(url);
+            if (result && result.phones) {
+                console.log(`Found ${result.phones.length} phone numbers at ${url}:`, result.phones);
+                allPhones.push(...result.phones);
+            } else {
+                console.log(`No phone numbers found at ${url}`);
+            }
+        }
+        
+        if (allPhones.length === 0) {
+            console.log('No phone numbers found on pages');
+            return {
+                success: false,
+                error: 'No phone numbers found on the searched pages. Please try a different search term.'
+            };
+        }
+        
+        // Use AI to disambiguate the phone numbers
+        const disambiguatedPhone = await disambiguatePhoneNumbers(interpretedQuery, allPhones, urls);
+        
+        if (disambiguatedPhone === null) {
+            return {
+                success: false,
+                error: 'Could not determine the correct phone number. Please try a more specific search term or validate the results manually.',
+                allPhones: allPhones,
+                urls: urls
+            };
+        }
+        
+        return {
+            success: true,
+            phone: disambiguatedPhone,
+            source: 'web',
+            urls: urls,
+            allPhones: allPhones
+        };
     } catch (error) {
         console.error('Search error:', error);
         return {
             success: false,
-            message: 'Failed to find phone number',
+            error: 'An error occurred while searching. Please try again.'
+        };
+    }
+});
+
+// Handler to validate a phone number
+ipcMain.handle('validate-phone', async (event, query, department, phoneNumber, isValid) => {
+    try {
+        if (isValid) {
+            // Add to cache
+            addToCache(query, department, phoneNumber);
+            
+            // Add to database
+            addPhoneNumber(department, phoneNumber, [query]);
+            
+            return {
+                success: true,
+                message: 'Phone number validated and added to cache'
+            };
+        } else {
+            return {
+                success: true,
+                message: 'Phone number marked as invalid'
+            };
+        }
+    } catch (error) {
+        console.error('Validation error:', error);
+        return {
+            success: false,
+            message: 'Failed to validate phone number',
             error: error.message
         };
     }
 });
 
-// Handler to add a new phone number
+// Handler to add a new phone number manually
 ipcMain.handle('add-phone', async (event, department, phoneNumber) => {
     try {
         const success = addPhoneNumber(department, phoneNumber);

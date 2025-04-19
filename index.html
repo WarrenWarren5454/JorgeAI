@@ -77,25 +77,27 @@
         color: #d9534f;
         margin-top: 10px;
       }
-      .add-phone-container {
-        background-color: white;
-        padding: 20px;
-        border-radius: 8px;
-        box-shadow: 0 2px 10px rgba(0, 0, 0, 0.1);
-        margin-bottom: 30px;
-      }
-      .add-phone-form {
+      .validation-buttons {
         display: flex;
-        flex-direction: column;
-        gap: 15px;
+        gap: 10px;
+        margin-top: 15px;
       }
-      .form-group {
-        display: flex;
-        flex-direction: column;
-      }
-      label {
-        margin-bottom: 5px;
+      .validation-button {
+        padding: 8px 15px;
+        border-radius: 4px;
+        cursor: pointer;
         font-weight: bold;
+        display: flex;
+        align-items: center;
+        gap: 5px;
+      }
+      .good-button {
+        background-color: #5cb85c;
+        color: white;
+      }
+      .bad-button {
+        background-color: #d9534f;
+        color: white;
       }
       .departments-list {
         background-color: white;
@@ -116,6 +118,96 @@
       .department-phone {
         color: #c8102e; /* UH Red */
       }
+      .source-badge {
+        display: inline-block;
+        padding: 2px 6px;
+        border-radius: 3px;
+        font-size: 12px;
+        margin-left: 5px;
+      }
+      .source-cache {
+        background-color: #5cb85c;
+        color: white;
+      }
+      .source-web {
+        background-color: #f0ad4e;
+        color: white;
+      }
+      .loading-message {
+        text-align: center;
+        padding: 20px;
+        color: #666;
+      }
+      .error-message {
+        color: #dc3545;
+        padding: 10px;
+        margin: 10px 0;
+        border: 1px solid #dc3545;
+        border-radius: 4px;
+        background-color: #fff;
+      }
+      .result-container {
+        margin-top: 20px;
+      }
+      .phone-result {
+        background-color: #f8f9fa;
+        padding: 20px;
+        border-radius: 4px;
+        margin-bottom: 20px;
+      }
+      .phone-number {
+        font-size: 24px;
+        font-weight: bold;
+        color: #00529b;
+        margin: 10px 0;
+      }
+      .source-badge {
+        display: inline-block;
+        padding: 4px 8px;
+        border-radius: 4px;
+        font-size: 12px;
+        margin-bottom: 10px;
+        background-color: #e9ecef;
+        color: #666;
+      }
+      .validation-buttons {
+        margin-top: 15px;
+      }
+      .validate-btn {
+        padding: 8px 16px;
+        border: none;
+        border-radius: 4px;
+        cursor: pointer;
+        margin-right: 10px;
+        font-weight: bold;
+      }
+      .validate-btn.good {
+        background-color: #28a745;
+        color: white;
+      }
+      .validate-btn.bad {
+        background-color: #dc3545;
+        color: white;
+      }
+      .alternative-results {
+        margin-top: 20px;
+        padding: 15px;
+        background-color: #f8f9fa;
+        border-radius: 4px;
+      }
+      .alternative-results h4 {
+        margin-top: 0;
+        color: #666;
+      }
+      .alternative-results ul {
+        list-style: none;
+        padding: 0;
+        margin: 0;
+      }
+      .alternative-results li {
+        padding: 5px 0;
+        color: #666;
+      }
     </style>
   </head>
   <body>
@@ -132,22 +224,26 @@
           <input type="text" id="searchInput" placeholder="Enter department name (e.g., HR, Housing, IT)">
           <button onclick="searchPhone()">Search</button>
         </div>
-        <div id="searchResult"></div>
-      </div>
-
-      <div class="add-phone-container">
-        <h2>Add a Phone Number</h2>
-        <div class="add-phone-form">
-          <div class="form-group">
-            <label for="departmentInput">Department Name</label>
-            <input type="text" id="departmentInput" placeholder="Enter department name">
+        <div id="searchResults" class="search-results">
+          <div id="loadingMessage" class="loading-message" style="display: none;">
+            Searching for phone number...
           </div>
-          <div class="form-group">
-            <label for="phoneInput">Phone Number</label>
-            <input type="text" id="phoneInput" placeholder="Enter phone number (e.g., (713) 743-3988)">
+          <div id="errorMessage" class="error-message" style="display: none;"></div>
+          <div id="resultContainer" class="result-container" style="display: none;">
+            <div class="phone-result">
+              <h3>Found Phone Number:</h3>
+              <p id="phoneNumber" class="phone-number"></p>
+              <div class="source-badge" id="sourceBadge"></div>
+              <div class="validation-buttons">
+                <button onclick="validatePhone('good')" class="validate-btn good">✓ Good</button>
+                <button onclick="validatePhone('bad')" class="validate-btn bad">✗ Bad</button>
+              </div>
+            </div>
+            <div id="alternativeResults" class="alternative-results" style="display: none;">
+              <h4>Other Phone Numbers Found:</h4>
+              <ul id="alternativePhones"></ul>
+            </div>
           </div>
-          <button onclick="addPhone()">Add Phone Number</button>
-          <div id="addResult"></div>
         </div>
       </div>
 
@@ -167,95 +263,123 @@
 
       // Function to search for a phone number
       async function searchPhone() {
-        const searchInput = document.getElementById('searchInput');
-        const searchResult = document.getElementById('searchResult');
-        const query = searchInput.value.trim();
-
+        const query = document.getElementById('searchInput').value.trim();
         if (!query) {
-          searchResult.innerHTML = '<div class="error">Please enter a department name</div>';
+          showError('Please enter a search term');
           return;
         }
 
-        searchResult.innerHTML = '<div class="loading">Searching...</div>';
+        // Show loading state
+        document.getElementById('loadingMessage').style.display = 'block';
+        document.getElementById('errorMessage').style.display = 'none';
+        document.getElementById('resultContainer').style.display = 'none';
+        document.getElementById('alternativeResults').style.display = 'none';
 
         try {
           const result = await ipcRenderer.invoke('search-phone', query);
           
+          // Hide loading state
+          document.getElementById('loadingMessage').style.display = 'none';
+
           if (result.success) {
-            searchResult.innerHTML = `
-              <div class="result">
-                <h3>${result.data.department}</h3>
-                <p>Phone: <strong>${result.data.phoneNumber}</strong></p>
-                <p><small>Source: ${result.source}</small></p>
-              </div>
-            `;
+            // Display the phone number
+            document.getElementById('phoneNumber').textContent = formatPhoneNumber(result.phone);
+            document.getElementById('sourceBadge').textContent = result.source === 'cache' ? 'From Cache' : 'From Web';
+            
+            // Show alternative results if available
+            if (result.allPhones && result.allPhones.length > 1) {
+              const alternativeList = document.getElementById('alternativePhones');
+              alternativeList.innerHTML = '';
+              
+              result.allPhones.forEach(phone => {
+                if (phone !== result.phone) {
+                  const li = document.createElement('li');
+                  li.textContent = formatPhoneNumber(phone);
+                  alternativeList.appendChild(li);
+                }
+              });
+              
+              document.getElementById('alternativeResults').style.display = 'block';
+            }
+            
+            document.getElementById('resultContainer').style.display = 'block';
           } else {
-            searchResult.innerHTML = `
-              <div class="error">
-                ${result.message}
-                <br>
-                <small>${result.error || ''}</small>
-              </div>
-            `;
+            showError(result.error);
+            
+            // If we have alternative results, show them
+            if (result.allPhones && result.allPhones.length > 0) {
+              const alternativeList = document.getElementById('alternativePhones');
+              alternativeList.innerHTML = '';
+              
+              result.allPhones.forEach(phone => {
+                const li = document.createElement('li');
+                li.textContent = formatPhoneNumber(phone);
+                alternativeList.appendChild(li);
+              });
+              
+              document.getElementById('alternativeResults').style.display = 'block';
+            }
           }
         } catch (error) {
-          searchResult.innerHTML = `
-            <div class="error">
-              An error occurred while searching
-              <br>
-              <small>${error.message}</small>
-            </div>
-          `;
+          document.getElementById('loadingMessage').style.display = 'none';
+          showError('An error occurred while searching. Please try again.');
         }
       }
 
-      // Function to add a new phone number
-      async function addPhone() {
-        const departmentInput = document.getElementById('departmentInput');
-        const phoneInput = document.getElementById('phoneInput');
-        const addResult = document.getElementById('addResult');
+      function formatPhoneNumber(phone) {
+        // Remove all non-digit characters
+        const cleaned = phone.replace(/\D/g, '');
         
-        const department = departmentInput.value.trim();
-        const phoneNumber = phoneInput.value.trim();
-
-        if (!department || !phoneNumber) {
-          addResult.innerHTML = '<div class="error">Please enter both department name and phone number</div>';
-          return;
+        // Format as (XXX) XXX-XXXX
+        if (cleaned.length === 10) {
+          return `(${cleaned.slice(0, 3)}) ${cleaned.slice(3, 6)}-${cleaned.slice(6)}`;
         }
+        
+        return phone;
+      }
 
-        addResult.innerHTML = '<div class="loading">Adding phone number...</div>';
+      function showError(message) {
+        const errorElement = document.getElementById('errorMessage');
+        errorElement.textContent = message;
+        errorElement.style.display = 'block';
+      }
 
+      // Function to validate a phone number
+      async function validatePhone(isValid) {
+        const phoneNumber = document.getElementById('phoneNumber').textContent;
+        const query = document.getElementById('searchInput').value.trim();
+        
         try {
-          const result = await ipcRenderer.invoke('add-phone', department, phoneNumber);
+          const result = await ipcRenderer.invoke('validate-phone', {
+            query: query,
+            phoneNumber: phoneNumber,
+            isValid: isValid
+          });
           
           if (result.success) {
-            addResult.innerHTML = `
-              <div class="result">
-                Phone number added successfully
-              </div>
-            `;
-            // Clear inputs
-            departmentInput.value = '';
-            phoneInput.value = '';
-            // Reload departments list
-            loadDepartments();
+            if (isValid) {
+              document.getElementById('resultContainer').innerHTML = `
+                <div class="phone-result">
+                  <h3>Phone Number Validated</h3>
+                  <p class="phone-number">${phoneNumber}</p>
+                  <p><small>Phone number has been added to cache</small></p>
+                </div>
+              `;
+              
+              // Reload departments list
+              loadDepartments();
+            } else {
+              document.getElementById('resultContainer').innerHTML = `
+                <div class="error-message">
+                  Phone number marked as invalid
+                </div>
+              `;
+            }
           } else {
-            addResult.innerHTML = `
-              <div class="error">
-                ${result.message}
-                <br>
-                <small>${result.error || ''}</small>
-              </div>
-            `;
+            showError(result.message || 'Failed to validate phone number');
           }
         } catch (error) {
-          addResult.innerHTML = `
-            <div class="error">
-              An error occurred while adding the phone number
-              <br>
-              <small>${error.message}</small>
-            </div>
-          `;
+          showError('An error occurred while validating the phone number');
         }
       }
 
