@@ -1,0 +1,44 @@
+{
+  "departments": [
+    {
+      "name": "UH IT Support",
+      "phone": "713-743-1411"
+    },
+    {
+      "name": "UH Help Desk",
+      "phone": "713-743-1411"
+    },
+    {
+      "name": "UH Police",
+      "phone": "713-743-3333"
+    },
+    {
+      "name": "UH Facilities",
+      "phone": "713-743-4948"
+    },
+    {
+      "name": "UH Parking",
+      "phone": "713-743-1099"
+    },
+    {
+      "name": "UH Registrar",
+      "phone": "713-743-1010"
+    },
+    {
+      "name": "UH Financial Aid",
+      "phone": "713-743-1010"
+    },
+    {
+      "name": "UH Admissions",
+      "phone": "713-743-1010"
+    },
+    {
+      "name": "UH Library",
+      "phone": "713-743-9800"
+    },
+    {
+      "name": "UH Bookstore",
+      "phone": "713-748-0922"
+    }
+  ]
+}

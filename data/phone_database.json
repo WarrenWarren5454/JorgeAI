@@ -1,0 +1,37 @@
+{
+  "departments": [
+    {
+      "name": "UH Housing",
+      "phoneNumber": "7137436000",
+      "added": "2025-04-19T03:00:39.022Z"
+    },
+    {
+      "name": "UH Parking",
+      "phoneNumber": "8328421097",
+      "added": "2025-04-19T03:01:26.908Z"
+    },
+    {
+      "name": "UH Human Resources",
+      "phoneNumber": "7137433988",
+      "added": "2025-04-19T03:01:53.169Z"
+    },
+    {
+      "name": "UH Security",
+      "phoneNumber": "7137433333",
+      "added": "2025-04-19T03:02:49.355Z"
+    },
+    {
+      "name": "UH IT Security",
+      "phoneNumber": "8328424695",
+      "added": "2025-04-19T03:03:36.191Z"
+    },
+    {
+      "name": "UH Downtown IT HelpDesk",
+      "phoneNumber": "7132218031",
+      "added": "2025-04-19T03:04:10.653Z"
+    }
+  ],
+  "metadata": {
+    "last_updated": "2025-04-19T03:04:10.653Z"
+  }
+}

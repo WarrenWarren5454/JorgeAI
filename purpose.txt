@@ -1,0 +1,5 @@
+The purpose of this project is to assist me in my daily duties as a University of Houston Help Desk Analyst
+
+Common pain points I wish to reduce:
+- Looking for an obscure phone number (commonly have to visit the website and scroll to find it)
+- Using the UH Directory at https://www.uh.edu/directory/
